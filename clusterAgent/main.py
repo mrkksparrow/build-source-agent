@@ -2,17 +2,20 @@ import requests
 import json
 from datetime import datetime
 
+#Global Variables
 TOKEN=''
 HEADER=''
 RESP_DATA=''
 RESP_JSON=''
+TIME=8
 RES_JSON={
     "items":[]
 }
-TIME=20
 
-endpoint='http://localhost:8080'
+#Endurl and paths
+endpoint='https://kubernetes'   #http://localhost:8080
 eventV1='/apis/events.k8s.io/v1/events'
+endpoint='http://localhost:8080'
 
 
 def get_token():
@@ -34,7 +37,7 @@ def sendRequest(path):
 
 def processResp():
     try:
-        global RESP_DATA, RESP_JSON
+        global RESP_JSON
         RESP_JSON=json.loads(RESP_DATA)
         RESP_JSON=RESP_JSON["items"]
         fetchByMin(TIME)
@@ -58,13 +61,16 @@ def fetchByMin(min):
     except Exception as e:
         print(e)
 
+
+#Split the Timestamp format
 def dtSplit(dt):
-    date, time=dt.split('T')
-    s=slice(0, -1)
-    time=time[s]
-    return date+" "+time+".00"
-
-
+    try:
+        date, time=dt.split('T')
+        s=slice(0, -1)
+        time=time[s]
+        return date+" "+time+".00"
+    except Exception as e:
+        print(e)
 
 
 
