@@ -1,0 +1,2 @@
+wget https://kubernetes/apis/events.k8s.io/v1/events --header "Authorization: Bearer $TOKEN" --no-check-certificate
+kubectl proxy --port=8080
