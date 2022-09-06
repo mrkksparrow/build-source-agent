@@ -44,8 +44,8 @@ class Events:
         try:
             import os   
             global TOKEN, HEADER
-            if(os.path.isfile('./apiPath.txt')):
-                fileOPEN=open('./apiPath.txt', 'r')
+            if(os.path.isfile('/var/run/secrets/kubernetes.io/serviceaccount/token')):
+                fileOPEN=open('/var/run/secrets/kubernetes.io/serviceaccount/token', 'r')
                 fileRead=fileOPEN.read()
                 TOKEN=fileRead.rstrip()
                 fileOPEN.close()
