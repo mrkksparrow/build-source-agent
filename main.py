@@ -18,7 +18,9 @@ def get_token():
     try:
         import os   
         global TOKEN, HEADER
-        TOKEN=os.system('cat /var/run/secrets/kubernetes.io/serviceaccount/token')
+        fileOPEN=open('/var/run/secrets/kubernetes.io/serviceaccount/token', 'r')
+        fileRead=fileOPEN.read()
+        TOKEN=fileRead.rstrip()
         HEADER={
             'Authorization': 'Bearer '+str(TOKEN)
         }
