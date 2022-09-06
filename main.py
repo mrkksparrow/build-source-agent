@@ -29,7 +29,7 @@ def sendRequest(path):
     try:
         global RESP_DATA
         req=requests.Session()
-        with req.get(endpoint+path,  stream=True) as res:
+        with req.get(endpoint+path, headers=HEADER, stream=True, verify=False) as res:
             for line in res.iter_lines():
                 if(line):
                     lineJSON=json.loads(line)
