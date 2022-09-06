@@ -11,7 +11,7 @@ TIME=27
 #Endurl and paths
 endpoint='https://kubernetes'   #http://localhost:8080
 eventV1='/apis/events.k8s.io/v1/events?watch=true'
-endpoint='http://localhost:8080'
+# endpoint='http://localhost:8080'
 
 
 def get_token():
@@ -19,7 +19,10 @@ def get_token():
         import os   
         global TOKEN, HEADER
         TOKEN=os.system('cat /var/run/secrets/kubernetes.io/serviceaccount/token')
-        HEADER='Authorization: Bearer '+str(TOKEN)
+        HEADER={
+            'Authorization': 'Bearer '+str(TOKEN)
+        }
+        print(TOKEN)
     except Exception as e:
         print(e)
 
@@ -27,9 +30,8 @@ def get_token():
 
 def sendRequest(path):
     try:
-        global RESP_DATA
         req=requests.Session()
-        with req.get(endpoint+path, headers=HEADER, stream=True, verify=False) as res:
+        with req.get(endpoint+path, headers=HEADER, verify=False, stream=True) as res:
             for line in res.iter_lines():
                 if(line):
                     lineJSON=json.loads(line)
