@@ -63,7 +63,7 @@ class Kubelet:
 
     def getReq(self, url):
         try:
-            js=requests.get(url)
+            js=requests.get(url, headers=HEADERS, verify=False)
             return js.json()
         except Exception as e:
             print(e)
