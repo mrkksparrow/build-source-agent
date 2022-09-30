@@ -27,7 +27,7 @@ class Kubelet:
                 tokenRead=token.read()
                 TOKEN=tokenRead.rstrip()
                 HEADERS={
-                    'Authorization': 'Bearer {TOKEN}'
+                    'Authorization': 'Bearer '+TOKEN
                 }
                 token.close()
         except Exception as e:
