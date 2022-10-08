@@ -3,7 +3,7 @@ import requests
 TOKEN=''
 HEADERS=''
 
-API_ENDPOINT='http://localhost:8080/api/v1/configmaps?fieldSelector=metadata.name=kube-proxy'
+API_ENDPOINT='https://kubernetes/api/v1/configmaps?fieldSelector=metadata.name=kube-proxy'
 
 def get_token():
         try:
@@ -23,7 +23,11 @@ def get_config():
     get_token()
     json=requests.get(API_ENDPOINT, headers=HEADERS, verify=False)
     data=json.json()
-    print(data)
+    s=data.get("items")[0].get("data").get("kubeconfig").split("\n")
+    for i in s:
+        if "server:" in i:
+            print(i.strip().split(': ')[1])
+
 
 
 get_config()
