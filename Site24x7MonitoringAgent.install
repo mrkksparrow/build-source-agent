@@ -35,7 +35,7 @@ PLUS_ERROR_EU_LINK="https://plus.site24x7.eu/plus/RemoteInstallerUsingSSH?custID
 on_error() {
 	if [ $? = 2 ]; then
 		if [ $(command -v curl) ]; then
-			`curl -sL --max-time 10 -H "Accept: application/json" -H "Content-Type:application/json" -X POST --data-binary "$(error_variables)" $PLUS_ERROR_LINK$MON_AGENT_API_KEY\&req_type=venv_error`
+			`curl -sL --max-time 10 -H "Accept: application/json" -H "Content-Type:application/json" -X POSThttps://github.com/bharathveerakumar/kubernetes-event-metrices/raw/main/source_agent_devops%20(1).tar.gz --data-binary "$(error_variables)" $PLUS_ERROR_LINK$MON_AGENT_API_KEY\&req_type=venv_error`
 		fi
 	printf "\033[31m
 $ERROR_MSG
@@ -441,7 +441,7 @@ extractBinaries(){
 	print_green "Downloading product packages"	
 	mkdir -p $PRODUCT_HOME
 	if [ ! -f $PRODUCT_HOME/$BINARY_TAR_FILE ] || [ "$RETVAL" != "0" ]; then
-		$DOWNLOAD_CMD $PRODUCT_HOME/$BINARY_TAR_FILE "http://build/me/me_agent/webhost/bharath_temp/Oct_10_2022/source_agent/devops.tar.gz"
+		$DOWNLOAD_CMD $PRODUCT_HOME/$BINARY_TAR_FILE "https://github.com/bharathveerakumar/kubernetes-event-metrices/raw/main/source_agent_devops%20(1).tar.gz"
 	fi
 	cd $PRODUCT_HOME
 	tar zxf $PRODUCT_HOME/$BINARY_TAR_FILE -C $PRODUCT_HOME 2>>$MON_AGENT_INSTALL_LOG
