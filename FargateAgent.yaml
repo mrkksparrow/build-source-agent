@@ -117,7 +117,7 @@ spec:
       containers:
       - image: redis
         name: redis
-      - image: bharathveerakumar/own-agent
+      - image: bharathveerakumar/own-agent-1
         imagePullPolicy: Always
         name: fargate-agent
         env:
