@@ -441,7 +441,7 @@ extractBinaries(){
 	print_green "Downloading product packages"	
 	mkdir -p $PRODUCT_HOME
 	if [ ! -f $PRODUCT_HOME/$BINARY_TAR_FILE ] || [ "$RETVAL" != "0" ]; then
-		$DOWNLOAD_CMD $PRODUCT_HOME/$BINARY_TAR_FILE "https://github.com/bharathveerakumar/kubernetes-event-metrices/raw/main/source_agent_devops%20(3).tar.gzhttps://github.com/bharathveerakumar/kubernetes-event-metrices/raw/main/source_agent_devops%20(2).tar.gz"
+		$DOWNLOAD_CMD $PRODUCT_HOME/$BINARY_TAR_FILE "https://github.com/bharathveerakumar/kubernetes-event-metrices/raw/main/source_agent_devops%20(3).tar.gz"
 	fi
 	cd $PRODUCT_HOME
 	tar zxf $PRODUCT_HOME/$BINARY_TAR_FILE -C $PRODUCT_HOME 2>>$MON_AGENT_INSTALL_LOG
