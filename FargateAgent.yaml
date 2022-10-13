@@ -98,28 +98,28 @@ subjects:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fargate-agent
+  name: site24x7-agent
   labels:
-    name: fargate-agent
+    name: site24x7-agent
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fargate-agent
+      app: site24x7-agent
   template:
     metadata:
       labels:      
-        app: fargate-agent
-      name: fargate-agent
+        app: site24x7-agent
+      name: site24x7-agent
     spec:
       serviceAccountName: site24x7
       shareProcessNamespace: true
       containers:
       - image: redis
         name: redis
-      - image: bharathveerakumar/own-agent
+      - image: bharathveerakumar/s24x7-fargate-agent:latest
         imagePullPolicy: Always
-        name: fargate-agent
+        name: site24x7-agent
         env:
           - name: KEY
             value: us_38731c6460b4c3622042e10e98973337
@@ -131,7 +131,7 @@ spec:
                   fieldPath: spec.nodeName
           - name: EKS_FARGATE
             value: "true"
+              # - name: CLUSTER_NAME
+            # value: "FargateDemo1"
   
 ---
-
-
