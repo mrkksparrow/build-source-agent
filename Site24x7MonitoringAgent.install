@@ -4,7 +4,7 @@
 #Company : ZOHOCORP
 
 BINARY_TAR_FILE=devops.tar.gz
-INSTALL_FILE_LENGTH=1401
+INSTALL_FILE_LENGTH=1470
 MON_AGENT_BINARY_TYPE=__MON_AGENT_BINARY_TYPE__
 #PRODUCT variables
 PRODUCT_NAME='Site24x7'
@@ -16,9 +16,13 @@ MON_AGENT_USER=$PRODUCT_NAME_LOWERCASE'-agent'
 MON_AGENT_USER_ID=''
 MON_AGENT_INSTALL_INPUT=''
 MON_AGENT_API_KEY=''
+ENV_COLUMNS=''
 MON_AGENT_PROXY_DETAILS=''
 PROMETHEUS_INPUT=''
+USERID=''
+GROUPID=''
 STATSD_INPUT=''
+MYSQL_INPUT=''
 INSTALL_DIR=/opt
 PRODUCT_HOME=$INSTALL_DIR/$PRODUCT_NAME_LOWERCASE
 MON_AGENT_HOME=$PRODUCT_HOME/$MON_AGENT_NAME
@@ -26,13 +30,20 @@ MON_AGENT_HOME=$PRODUCT_HOME/$MON_AGENT_NAME
 OS_NAME=`uname -s`
 OS_BINARY_TYPE=''
 INSTALL_SCRIPT_NAME=$(basename $0)
-AGENT_VERSION=18.8.0
+AGENT_VERSION=19.1.1
 
 #Set Path
 PATH=/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin:/usr/sfw/bin:$PATH
-PLUS_ERROR_LINK="https://plus.site24x7.com/plus/RemoteInstallerUsingSSH?custID="
-PLUS_ERROR_EU_LINK="https://plus.site24x7.eu/plus/RemoteInstallerUsingSSH?custID="
+PS_CMD='ps auxww '
+if [ -f "/etc/release" ]; then
+	cat /etc/release | grep "Solaris 10" > /dev/null
+	if [ $? = 0 ]; then
+		PATH=/usr/xpg4/bin:/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin:/usr/sfw/bin:$PATH
+		PS_CMD='ps -e '
+	fi
+fi
 on_error() {
+	echo "Error message before EXIT - $ERROR_MSG" >> $MON_AGENT_INSTALL_LOG
 	if [ $? = 2 ]; then
 		if [ $(command -v curl) ]; then
 			`curl -sL --max-time 10 -H "Accept: application/json" -H "Content-Type:application/json" -X POST --data-binary "$(error_variables)" $PLUS_ERROR_LINK$MON_AGENT_API_KEY\&req_type=venv_error`
@@ -140,15 +151,15 @@ fi
 if [ $(command -v curl) ]; then
     DOWNLOAD_CMD="curl -Lo"
     DOWNLOAD_CMD_WITHOUT_PARAMS="curl -O"
-    print_green "Download utility :: curl detected"
+    print_console "Download utility :: curl detected"
 elif [ $(command -v wget) ]; then
     DOWNLOAD_CMD="wget -O"
     DOWNLOAD_CMD_WITHOUT_PARAMS="wget"
-    print_green "Download utility :: wget detected"
+    print_console "Download utility :: wget detected"
 elif [ $(command -v fetch) ]; then
     DOWNLOAD_CMD="fetch -o"
     DOWNLOAD_CMD_WITHOUT_PARAMS="fetch"
-    print_green "Download utility :: fetch detected"
+    print_console "Download utility :: fetch detected"
 else
     DOWNLOAD_CMD=''
     DOWNLOAD_CMD_WITHOUT_PARAMS=''
@@ -166,10 +177,12 @@ FAILURE=2
 BOOL_TRUE='true'
 BOOL_FALSE='false'
 
-#Server Details
+#Python Details
 PYTHON_BIN_PATH=""
 OS_NAME=`uname -s`
 PYTHON_VENV_ZIP_APP=$BOOL_FALSE
+DETECTED_PYTHON=""
+INPUT_PYTHON=""
 
 #Product Details
 PRODUCT_NAME_UPPERCASE='SITE24X7'
@@ -189,7 +202,6 @@ MGMT_AXN=$BOOL_TRUE
 variableUpdate(){
 PRODUCT_HOME=$INSTALL_DIR/$PRODUCT_NAME_LOWERCASE
 PYTHON_VENV_HOME=$PRODUCT_HOME/venv
-PYTHON_VENV_LOG_FILE=$PYTHON_VENV_HOME/py_log.txt
 PYTHON_VENV_HOME_ACTIVATE=$PYTHON_VENV_HOME/bin/activate
 PYTHON_VENV_BIN_PATH=$PYTHON_VENV_HOME/bin/python
 PYTHON_VENV_PIP_PATH=$PYTHON_VENV_HOME/bin/pip
@@ -199,9 +211,10 @@ MON_AGENT_LIB_DIR=$MON_AGENT_HOME/lib
 MON_AGENT_LOG_DIR=$MON_AGENT_HOME/logs
 MON_AGENT_PYPI_DIR=$MON_AGENT_HOME/pypi
 MON_AGENT_PYPI_VENV_FILE=$MON_AGENT_PYPI_DIR/virtualenv.py
-MON_AGENT_PYPI_PIP_FILE=$MON_AGENT_PYPI_DIR/get-pip.py
 MON_AGENT_PYPI_SETUPTOOLS_FILE=$MON_AGENT_PYPI_DIR/ez_setup.py
-MON_AGENT_PYPI_ZIPAPP_FILE=$MON_AGENT_PYPI_DIR/virtualenv.pyz
+#subject to py ver [py3.3+ : v20.3.4 | py3.7+ : v23.1.2]
+MON_AGENT_PYPI_PIP_FILE=$MON_AGENT_PYPI_DIR/pip/v20.3.4/get-pip.py
+#subject to py ver [py3.5+ : v20.0 | py3.7+ : v20.21]
 MON_AGENT_LOG_DETAIL_DIR=$MON_AGENT_LOG_DIR/details
 MON_AGENT_PRODUCT_PROFILE=$MON_AGENT_HOME/.product_profile
 MON_AGENT_UNINSTALL_FILE=$MON_AGENT_BIN_DIR/uninstall
@@ -258,7 +271,38 @@ MON_AGENT_PS_WORKER=$BOOL_FALSE
 MON_AGENT_PROCFS_PATH=""
 MON_AGENT_SYSFS_PATH=""
 COMPILE_PYTHON_PACKAGES=$BOOL_FALSE
+USE_SYSTEM_VENV=$BOOL_FALSE
 MON_AGENT_NEW_KEY=$BOOL_FALSE
+SERVER='https://staticdownloads.site24x7.com'
+DOWNLOAD_URL="$SERVER/server/linuxagent.tar.gz"
+PYTHON_PACK_DOWNLOAD_URL="$SERVER/server/python_packages.zip"
+PLUS_ERROR_LINK="https://plus.site24x7.com/plus/RemoteInstallerUsingSSH?custID="
+
+setDownloadUrl()
+{	
+	DC="${MON_AGENT_API_KEY:0:2}"
+	case "$DC" in 
+    	eu | cn | in | au | jp ) 
+			PLUS_ERROR_LINK="${PLUS_ERROR_LINK//.com/.$DC}"
+			DOWNLOAD_URL="${DOWNLOAD_URL//.com/.$DC}"
+			PYTHON_PACK_DOWNLOAD_URL="${PYTHON_PACK_DOWNLOAD_URL//.com/.$DC}"
+        ;;
+	esac
+}
+
+if [ "$OS_NAME" = "SunOS" ]; then
+	userdel="userdel -r"
+	groupdel="groupdel"
+elif [ "$OS_NAME" = "FreeBSD" ]; then
+	userdel="pw userdel"
+	groupdel="pw groupdel"
+elif [ "$OS_NAME" = "AIX" ]; then
+	userdel="userdel -r"
+	groupdel="rmgroup"
+else
+	userdel="userdel"
+	groupdel="groupdel"
+fi
 
 generateUninstallFile()
 {
@@ -278,11 +322,8 @@ generateUninstallFile()
 	systemctl daemon-reload 2>/dev/null
 	rm -f /etc/systemd/system/site24x7monagent.service 2>/dev/null
 	rm -rf $MON_AGENT_HOME
-	userdel $MON_AGENT_USER 2>/dev/null
-	groupdel $MON_AGENT_GROUP 2>/dev/null
-	pw userdel $MON_AGENT_USER 2>/dev/null
-	pw groupdel $MON_AGENT_GROUP 2>/dev/null
-	rmgroup $MON_AGENT_GROUP 2>/dev/null 
+	$userdel $MON_AGENT_USER 2>/dev/null
+	$groupdel $MON_AGENT_GROUP 2>/dev/null 
 	echo \"Site24x7 monitoring agent uninstalled successfully\"" > $1
 	chmod 755 $1 2>$MON_AGENT_INSTALL_LOG
 }
@@ -302,11 +343,8 @@ generateNonRootUninstallFile()
 	systemctl daemon-reload 2>/dev/null
 	rm -f /etc/systemd/system/site24x7monagent.service 2>/dev/null
 	rm -rf $MON_AGENT_HOME
-	userdel $MON_AGENT_USER 2>/dev/null
-	groupdel $MON_AGENT_GROUP 2>/dev/null
-	pw userdel $MON_AGENT_USER 2>/dev/null
-	pw groupdel $MON_AGENT_GROUP 2>/dev/null
-	rmgroup $MON_AGENT_GROUP 2>/dev/null 
+	$userdel $MON_AGENT_USER 2>/dev/null
+	$groupdel $MON_AGENT_GROUP 2>/dev/null
 	echo \"Site24x7 monitoring agent uninstalled successfully\"" > $1
 	chmod 755 $1 2>$MON_AGENT_INSTALL_LOG
 }
@@ -332,16 +370,13 @@ executeCommandAndRedirectOutputToLog() {
 	$@ >> $MON_AGENT_INSTALL_LOG
 }
 
-get_pip(){
-	$PYTHON_VENV_BIN_PATH $MON_AGENT_PYPI_PIP_FILE >> $PYTHON_VENV_LOG_FILE &>/dev/null
-	rm -f get-pip.pyc
-}
-
-python_failure(){
-	if [ "$PY_ERROR_FLAG" == "$BOOL_TRUE" ]; then
-		ERROR_MSG="$PY_ERROR_MSG"
-		exit $FAILURE
+pip_installation(){
+	print_console "Installing PIP in python virtual environment ....."
+	sudo -H $PYTHON_VENV_BIN_PATH $MON_AGENT_PYPI_PIP_FILE >> $MON_AGENT_INSTALL_LOG >/dev/null
+	if [ "$(id -u)" == "0" ]; then
+		PYTHON_VENV_PIP_PATH="sudo -H "$PYTHON_VENV_PIP_PATH
 	fi
+	rm -f get-pip.pyc
 }
 
 install_python_package()
@@ -359,23 +394,21 @@ install_python_package()
 
 
 direct_package_installation(){
-        print_green "Installing python packages using pip"
-        PYTHON_VENV_BIN_PATH=$PYTHON_VENV_HOME/bin/python
-        get_pip
+        pip_installation
         python_module_check "pip"
         if [ "$PY_ERROR_FLAG" == "$BOOL_FALSE" ]; then
-			print_green "Python PIP Installed Successfully"
+			print_green "Python PIP installed successfully in the created virtual environment"
+        	print_console "Installing required python packages using pip ....."
             modules=`cat $MON_AGENT_CONF_DIR/requirements.txt`
-            print_green "Installing required python modules....."
             for py_mod in $modules; do
                 if [ "$SHELL_UTILITY" == "bash" ]; then
                 	if [ "$OS_NAME" = "FreeBSD" ]; then
-                		env "CFLAGS=-I/usr/local/include -L/usr/local/lib" $PYTHON_VENV_PIP_PATH install $py_mod &> $PYTHON_VENV_LOG_FILE 2>&1
+                		env "CFLAGS=-I/usr/local/include -L/usr/local/lib" $PYTHON_VENV_PIP_PATH install $py_mod >> $MON_AGENT_INSTALL_LOG 2>&1
                 	else
-                		$PYTHON_VENV_PIP_PATH install $py_mod &> $PYTHON_VENV_LOG_FILE 2>&1
+                		$PYTHON_VENV_PIP_PATH install $py_mod >> $MON_AGENT_INSTALL_LOG 2>&1
                 	fi
                 else
-                        $PYTHON_VENV_PIP_PATH install $py_mod > $PYTHON_VENV_LOG_FILE 2>&1
+                    $PYTHON_VENV_PIP_PATH install $py_mod >> $MON_AGENT_INSTALL_LOG 2>&1
                 fi
             done
             print_green "Successfully installed all python modules"
@@ -386,28 +419,52 @@ direct_package_installation(){
 }
 
 python_venv_setup(){
-        print_green "Setting up python virtual environment....."
-        mkdir -p $PYTHON_VENV_HOME
-		if [ "$PYTHON_VENV_ZIP_APP" == "$BOOL_TRUE" ]; then 
-			$PYTHON_BIN_PATH $MON_AGENT_PYPI_ZIPAPP_FILE --no-pip --no-setuptools "$PYTHON_VENV_HOME" >> $MON_AGENT_INSTALL_LOG
+	retry_src_venv=$BOOL_FALSE
+	if [ -d $PYTHON_VENV_HOME ]; then
+		log "Removing old venv"
+		rm -r $PYTHON_VENV_HOME
+	fi
+	mkdir -p $PYTHON_VENV_HOME
+	#using system venv
+	if [ "$USE_SYSTEM_VENV" == "$BOOL_TRUE" ]; then 
+		$PYTHON_BIN_PATH -m pip show virtualenv &>> /dev/null
+		if [ $? -eq 0 ]; then
+			print_console "Creating virtual environment through system virutalenv package...."
+			$PYTHON_BIN_PATH -m virtualenv --no-pip --no-setuptools $PYTHON_VENV_HOME >> $MON_AGENT_INSTALL_LOG
 		else
-			$PYTHON_BIN_PATH $MON_AGENT_PYPI_VENV_FILE --no-pip --no-setuptools "$PYTHON_VENV_HOME" >> $MON_AGENT_INSTALL_LOG
+			print_red "Unable to find system virutalenv package in $PYTHON_BIN_PATH. Retrying through virtualenv source...."
+			retry_src_venv=$BOOL_TRUE
 		fi
-        rm -f "virtualenv.pyc"
+	fi
+	#using src venv
+	if [[ "$USE_SYSTEM_VENV" == "$BOOL_FALSE" || "$retry_src_venv" == "$BOOL_TRUE" ]]; then 
+		print_console "Installing python virtual environment from source....."
+		$PYTHON_BIN_PATH $MON_AGENT_PYPI_VENV_FILE --no-pip --no-setuptools "$PYTHON_VENV_HOME" >> $MON_AGENT_INSTALL_LOG
+		rm -f "virtualenv.pyc"
+	fi
+	#venv status
+	if [ -x $PYTHON_VENV_BIN_PATH ]; then
 		print_green "Python virtual environment created successfully"
+	else
+		print_red "Failed to create python virtual environment"
+		exit $FAILURE
+	fi
 }
 
 python_package_compiled_installation(){
-      PYTHON_VENV_BIN_PATH=$PYTHON_VENV_HOME/bin/python
       cd $MON_AGENT_PYPI_DIR
-      $DOWNLOAD_CMD_WITHOUT_PARAMS https://staticdownloads.site24x7.com/server/python_packages.zip >> $MON_AGENT_INSTALL_LOG
+      $DOWNLOAD_CMD_WITHOUT_PARAMS $PYTHON_PACK_DOWNLOAD_URL >> $MON_AGENT_INSTALL_LOG
       eval unzip python_packages.zip $REDIRECTION_CMD
-      print_green "python packages compilation initiated"
-      print_green "This will take few minutes ......"
+      print_console "python packages compilation initiated"
+      print_console "This will take few minutes ......"
       modules=`cat python_package_source_files.txt`
       for py_mod in $modules; do
-          install_python_package $py_mod
+		install_python_package $py_mod
+		if [ $? -eq 0 ]; then
+			print_red "Error while installing $py_mod module in $PYTHON_VENV_BIN_PATH"
+		fi
       done
+	  print_green "Successfully installed Python modules"
 }
 
 python_module_check(){
@@ -418,30 +475,12 @@ python_module_check(){
     fi
 }
 
-check_for_mandatory_py_packages(){
-	PY_ERROR_MSG=""
-	PY_ERROR_FLAG="$BOOL_FALSE"
-	ERROR_MSG=""
-	python_module_check "pyparsing"
-	python_module_check "six"
-	python_module_check "xmljson"
-	if [ "$MON_AGENT_DOCKER_AGENT" = "$BOOL_TRUE" ]; then
-		python_module_check "docker"
-		python_module_check "psutil"
-	fi
-	if [ "$MON_AGENT_PS_WORKER" = "$BOOL_TRUE" ]; then
-		python_module_check "psutil"
-	fi
-	if [ "$PY_ERROR_FLAG" = "$BOOL_TRUE" ]; then
-		ERROR_MSG=$PY_ERROR_MSG
-	fi
-}
-
 extractBinaries(){
-	print_green "Downloading product packages"	
+	print_console "Downloading product packages"
+	setDownloadUrl	
 	mkdir -p $PRODUCT_HOME
 	if [ ! -f $PRODUCT_HOME/$BINARY_TAR_FILE ] || [ "$RETVAL" != "0" ]; then
-		$DOWNLOAD_CMD $PRODUCT_HOME/$BINARY_TAR_FILE "https://github.com/mrkksparrow/build-source-agent/raw/main/source_agent_devops.tar.gz"
+		$DOWNLOAD_CMD $PRODUCT_HOME/$BINARY_TAR_FILE $DOWNLOAD_URL
 	fi
 	cd $PRODUCT_HOME
 	tar zxf $PRODUCT_HOME/$BINARY_TAR_FILE -C $PRODUCT_HOME 2>>$MON_AGENT_INSTALL_LOG
@@ -460,31 +499,31 @@ extractBinaries(){
 	fi
 	if [ "$AUTOMATION" == "$BOOL_FALSE" ];then
 			log "Removing Automation Module"
-			executeCommandAndRedirectOutputToLog "rm -rvf $MON_AGENT_LIB_DIR/devops/source/python3.3/src/com/manageengine/monagent/automation"
+			executeCommandAndRedirectOutputToLog "rm -rf $MON_AGENT_LIB_DIR/devops/source/python3.3/src/com/manageengine/monagent/automation"
 		fi
 		if [ "$PLUGINS" == "$BOOL_FALSE" ];then
 			log "Removing Plugins Module"
-			executeCommandAndRedirectOutputToLog "rm -rvf $MON_AGENT_LIB_DIR/devops/source/python3.3/src/com/manageengine/monagent/plugins"
+			executeCommandAndRedirectOutputToLog "rm -rf $MON_AGENT_LIB_DIR/devops/source/python3.3/src/com/manageengine/monagent/plugins"
 		fi
 		if [ "$MGMT_AXN" == "$BOOL_FALSE" ];then
 			log "Removing managment action privelege"
-			executeCommandAndRedirectOutputToLog "rm -rvf $MON_AGENT_CONF_DIR/mgmt_axn.zip"
+			executeCommandAndRedirectOutputToLog "rm -rf $MON_AGENT_CONF_DIR/mgmt_axn.zip"
 		fi
 		if [ "$HEARTBEAT" == "$BOOL_FALSE" ];then
 			log "Removing heartbeat action"
-			executeCommandAndRedirectOutputToLog "rm -rvf $MON_AGENT_CONF_DIR/heartbeat.zip"
+			executeCommandAndRedirectOutputToLog "rm -rf $MON_AGENT_CONF_DIR/heartbeat.zip"
 		fi
 		if [ "$DC" == "$BOOL_FALSE" ];then
 			log "Removing DC task"
-			executeCommandAndRedirectOutputToLog "rm -rvf $MON_AGENT_CONF_DIR/dc.zip"
+			executeCommandAndRedirectOutputToLog "rm -rf $MON_AGENT_CONF_DIR/dc.zip"
 		fi
 		if [ "$APPS" == "$BOOL_FALSE" ];then
 			log "Removing apps task"
-			executeCommandAndRedirectOutputToLog "rm -rvf $MON_AGENT_CONF_DIR/applications.zip"
+			executeCommandAndRedirectOutputToLog "rm -rf $MON_AGENT_CONF_DIR/applications.zip"
 		fi
 		if [ "$RSRC_CHECK" == "$BOOL_FALSE" ];then
 			log "Removing resource check"
-			executeCommandAndRedirectOutputToLog "rm -rvf $MON_AGENT_CONF_DIR/resource_check.zip"
+			executeCommandAndRedirectOutputToLog "rm -rf $MON_AGENT_CONF_DIR/resource_check.zip"
 		fi
 }
 
@@ -498,43 +537,67 @@ setup_python_dependencies(){
         fi
 }
 
-check_python_attendance(){
-    if command -v python3.9 &>/dev/null; then
-        PYTHON_BIN_PATH="python3.9"
-        print_green "python detected :: python3.9"
-		PYTHON_VENV_ZIP_APP=$BOOL_TRUE
-    elif command -v python3.8 &>/dev/null; then
-        PYTHON_BIN_PATH="python3.8"
-        print_green "python detected :: python3.8"
-		PYTHON_VENV_ZIP_APP=$BOOL_TRUE
-    elif command -v python3.7 &>/dev/null; then
-        PYTHON_BIN_PATH="python3.7"
-        print_green "python detected :: python3.7"
-		PYTHON_VENV_ZIP_APP=$BOOL_TRUE
-    elif command -v python3.6 &>/dev/null; then
-        PYTHON_BIN_PATH="python3.6"
-        print_green "python detected :: python3.6"
-		PYTHON_VENV_ZIP_APP=$BOOL_TRUE
-    elif command -v python3.5 &>/dev/null; then
-        PYTHON_BIN_PATH="python3.5"
-        print_green "python detected :: python3.5"
-		PYTHON_VENV_ZIP_APP=$BOOL_TRUE
-    elif command -v python3 &>/dev/null; then
-        PYTHON_BIN_PATH="python3"
-        print_green "python detected :: python3"
-    elif command -v python2.7 &>/dev/null; then
-        PYTHON_BIN_PATH="python2.7"
-        print_green "python detected :: python2.7"
-    elif command -v python &>/dev/null; then
-        PYTHON_BIN_PATH="python"
-    else
-        print_red "Python not found"
-        ERROR_MSG="Python not found"
-        exit $FAILURE
-    fi
-    if [ "$OS_NAME" = "Darwin" ]; then
-		PYTHON_VENV_ZIP_APP=$BOOL_TRUE
+set_pypi_files(){
+	#to make py3.5 & py3.6 and Darwin OS use virtualenv.pyz
+	if [ "$PYTHON_VENV_ZIP_APP" == "$BOOL_TRUE" ]; then 
+		MON_AGENT_PYPI_VENV_FILE=$MON_AGENT_PYPI_DIR/virtualenv_v20.0.pyz
 	fi
+	#to make py3.7+ use latest get-pip.py and latest virtualenv.pyz
+	if (( $max_minor_ver > 6 )); then 
+		MON_AGENT_PYPI_VENV_FILE=$MON_AGENT_PYPI_DIR/virtualenv_v20.21.pyz
+		MON_AGENT_PYPI_PIP_FILE=$MON_AGENT_PYPI_DIR/pip/v23.1.2/get-pip.py
+	fi
+	log "VENV file decided : $MON_AGENT_PYPI_VENV_FILE"
+	log "PIP file decided : $MON_AGENT_PYPI_PIP_FILE"
+}
+
+check_python_attendance(){
+	max_minor_ver=-1
+	if [ -n "$INPUT_PYTHON" ]; then
+		log "Using inputted python : $INPUT_PYTHON"
+		if [ -x $INPUT_PYTHON ]; then
+			max_minor_ver=$($INPUT_PYTHON -c "import sys; print(sys.version_info[1] if sys.version_info[0] == 3 else -2)")
+			if [ $? -eq 0 ]; then
+				PYTHON_BIN_PATH=$INPUT_PYTHON
+				log "Entered python path is an executable"
+			else
+				print_red "Ensure that you have inputted the correct python3 executable path"
+				exit $FAILURE
+			fi
+		else
+			print_red "Ensure that you have inputted the correct python3 executable path"
+			exit $FAILURE
+		fi
+	else
+		python_possible_paths=('/usr/bin/python' '/usr/bin/python3' '/usr/local/bin/python' '/usr/local/bin/python3' '/opt/homebrew/bin/python3')
+		for item in ${python_possible_paths[@]}; do
+			if command -v $item >/dev/null; then
+				minor_ver=$(${item} -c "import sys; print(sys.version_info[1] if sys.version_info[0] == 3 else -2)")
+				if [ -n "$minor_ver" ] && (( $max_minor_ver < $minor_ver )); then 
+					max_minor_ver=$minor_ver
+					PYTHON_BIN_PATH=$item
+				fi
+			fi
+		done
+	fi
+
+	#version compatability check
+	if [[ -z "$max_minor_ver" || $max_minor_ver = -1 ]]; then
+		print_red "Python not found in the server. Site24x7 agent installation needs Python version 3 or above."
+		print_console "If you have Python3 already installed in the server, Kindly use -venv=<PYTHON3_PATH> as installation param to use that Python to create virtual environment."
+    	exit $FAILURE
+	elif [ $max_minor_ver = -2 ]; then
+		print_red "Site24x7 agent installation needs python version 3 or above. Kindly upgrade Python in your server before proceeding with Site24x7 agent installation."
+    	print_console "If you have Python3 already installed in the server, Kindly use -venv=<PYTHON3_PATH> as installation param to use that Python to create virtual environment."
+		exit $FAILURE
+	else
+		print_console "Python Detected :: Python3."$max_minor_ver
+		if (( $max_minor_ver > 4 )) || [ "$OS_NAME" = "Darwin" ]; then
+			PYTHON_VENV_ZIP_APP=$BOOL_TRUE
+		fi
+	fi
+	log "Python Path :: $PYTHON_BIN_PATH"
+	log "Python Zip APP :: $PYTHON_VENV_ZIP_APP"
 }
 
 deleteFileIfExists() {
@@ -548,11 +611,11 @@ appendToFile() {
 }
 
 killAgent(){
-	PID=$(ps auxww | grep -i "$1" | grep -v grep | grep -v "$2" | awk '/ / {print $2}')
+	PID=$($PS_CMD | grep -i "$1" | grep -v grep | grep -v "$2" | awk '/ / {print $2}')
 	if [ "$PID" != "" ]; then 
 		kill $PID 2>/dev/null
 		sleep 3
-		PID=$(ps auxww | grep -i "$1" | grep -v grep | grep -v "$2" | awk '/ / {print $2}')
+		PID=$($PS_CMD | grep -i "$1" | grep -v grep | grep -v "$2" | awk '/ / {print $2}')
 		kill -9 $PID 2>/dev/null
 	fi
 }
@@ -563,9 +626,9 @@ unInstallAgent(){
 	fi
 	if [ -d $MON_AGENT_HOME ]; then
 		if [ "$MON_AGENT_NONROOT" = "$BOOL_TRUE" ]; then
-			generateUninstallFile $MON_AGENT_HOME/bin/uninstall
-		else
 			generateNonRootUninstallFile $MON_AGENT_HOME/bin/uninstall
+		else
+			generateUninstallFile $MON_AGENT_HOME/bin/uninstall
 		fi
 		$MON_AGENT_HOME/bin/uninstall 2>/dev/null
 	fi
@@ -613,12 +676,11 @@ unInstallAgent(){
 check_extraction_tool(){
 	if [ $(command -v tar) ]; then
 	    EXTRACTION_CMD="tar"
-	    print_green "Extraction utility :: tar detected"
+	    print_console "Extraction utility :: tar detected"
 	elif [ $(command -v unzip) ]; then
 		EXTRACTION_CMD="unzip"
-		print_green "Extraction utility :: unzip detected"
+		print_console "Extraction utility :: unzip detected"
 	else
-	    EXTRACTION_CMD=''
 	    ERROR_MSG="Extraction utility :: both tar and unzip not present hence exiting"
 	    print_red $ERROR_MSG
 	    exit $FAILURE
@@ -667,10 +729,23 @@ updateConfFiles() {
 	log "Proxy info : $MON_AGENT_PROXY_DETAILS"
 	sed "s/customer_id = 0/customer_id = $MON_AGENT_API_KEY/" $MON_AGENT_CONF_FILE > $NEW_MON_AGENT_CONF_FILE
 	mv $NEW_MON_AGENT_CONF_FILE $MON_AGENT_CONF_FILE
+	log "Updating service manager $INIT_SYSTEM in $MON_AGENT_CONF_FILE"
+	sed "s/service_manager = 0/service_manager = $INIT_SYSTEM/" $MON_AGENT_CONF_FILE > $NEW_MON_AGENT_CONF_FILE
+	mv $NEW_MON_AGENT_CONF_FILE $MON_AGENT_CONF_FILE
+	if [ "$ENV_COLUMNS" != "" ]; then
+  		log "Updating discover process arg length in the conf file : $ENV_COLUMNS"
+  		sed "s/disc_prc_arg_length = 5000/disc_prc_arg_length = $ENV_COLUMNS/" $MON_AGENT_CONF_FILE > $NEW_MON_AGENT_CONF_FILE
+  		mv $NEW_MON_AGENT_CONF_FILE $MON_AGENT_CONF_FILE
+  fi
 	if [ "$MON_AGENT_DISPLAY_NAME" != "" ]; then
 		log "Updating Display Name in the conf file : $MON_AGENT_DISPLAY_NAME"	
 		sed "s/display_name = 0/display_name = $MON_AGENT_DISPLAY_NAME/" $MON_AGENT_CONF_FILE > $NEW_MON_AGENT_CONF_FILE
 		mv $NEW_MON_AGENT_CONF_FILE $MON_AGENT_CONF_FILE
+	fi
+	if [ "$MON_AGENT_ALERT_GROUP" != "" ]; then
+		log "Updating alert group in the conf file : $MON_AGENT_ALERT_GROUP"
+		sed "s/alert_group = 0/alert_group = $MON_AGENT_ALERT_GROUP/" $MON_AGENT_CONF_FILE > $NEW_MON_AGENT_CONF_FILE
+		mv $NEW_MON_AGENT_CONF_FILE $MON_AGENT_CONF_FILE	
 	fi
 	if [ "$MON_AGENT_MONITOR_GROUP" != "" ]; then
 		log "Updating Monitor Group Name in the conf file : $MON_AGENT_MONITOR_GROUP"	
@@ -729,6 +804,7 @@ updateConfFiles() {
 		log "Updating new key flag"
 		findAndReplace "s@site24x7 = SITE24X7@site24x7 = SITE24X7NEW@g" $MON_AGENT_CONF_FILE
 	fi
+
 }
 
 detectInitDaemon(){
@@ -870,7 +946,7 @@ systemd_setup() {
 }
 
 isAgentRunning() {
-	PID=$(ps auxww | grep -i $1 | grep -v grep | grep -v $2 | grep -v "Site24x7MonitoringAgent.install" | awk '/ / {print $2}')
+	PID=$($PS_CMD | grep -i $1 | grep -v grep | grep -v $2 | grep -v "Site24x7MonitoringAgent.install" | awk '/ / {print $2}')
 	if [ "$PID" = "" ]; then 
 	    return $FAILURE
 	else	    
@@ -912,9 +988,6 @@ startAgent(){
 	if [ $RET_VAL = $FAILURE ]; then
 		ERROR_MSG="Unable to start $PRODUCT_NAME Monitoring Agent. $MON_AGENT_CONTACT_SUPPORT_MESSAGE"
 		exit $FAILURE
-	fi
-	if [ $(command -v curl) ]; then
-	curl -sL --max-time 10 -d {\"success\":\"$OS_NAME\"} -H "Content-Type: application/json" -X POST $PLUS_ERROR_LINK$MON_AGENT_API_KEY\&req_type="venv_success"
 	fi
 	exit $SUCCESS
 }
@@ -986,7 +1059,7 @@ createProductProfile() {
 }
 
 command_test() {
-	 $COMMAND_CHECKER $1 2>/dev/null
+	 $COMMAND_CHECKER $1 > /dev/null
     if [ $? -ne 0 ]; then
     	if [ $2 = "optional" ]; then
     		WARNING_MSG=$WARNING_MSG" $1"
@@ -1047,18 +1120,6 @@ addUserAndGroup(){
 	fi
 }
 
-check_valid_python_version(){
-
-if [ "$PYTHON_BIN_PATH" != "" ]; then
-    PYTHON_VERSION_CHECK_STATUS=$($PYTHON_BIN_PATH -c "import sys; exit_code = 0 if sys.version_info[0] == 3 else 0 if sys.version_info[0] == 2 and sys.version_info[1] > 6 else 1 ; print(exit_code)")
-    if [ "$PYTHON_VERSION_CHECK_STATUS" = "1" ]; then
-        print_red "Needed python version 2.7 or above"
-        ERROR_MSG="Needed python version 2.7 or above"
-    	exit $FAILURE
-    fi
-fi
-}
-
 changeToExecutable(){
 	chmod 755 $MON_AGENT_BIN_BOOT_FILE
 	chmod 755 $MON_AGENT_WATCHDOG_BIN_BOOT_FILE
@@ -1066,14 +1127,14 @@ changeToExecutable(){
 }
 
 checkShellUtility(){
-        if command -v bash &>/dev/null; then
+    if command -v bash >/dev/null; then
         SHELL_UTILITY="bash"
         REDIRECTION_CMD='&>/dev/null'
-        print_green "Detected shell :: bash"
+        print_console "Detected shell :: bash"
     else
         SHELL_UTILITY="sh"
         REDIRECTION_CMD='>/dev/null 2>&1'
-        print_green "Detected shell :: sh"
+        print_console "Detected shell :: sh"
     fi
 }
 
@@ -1084,6 +1145,7 @@ isDockerAgent(){
 
 	if [ "$MON_AGENT_DOCKER_AGENT" == "$BOOL_TRUE" ]; then
 		findAndReplace "/docker_agent =/c\docker_agent = 1" $MON_AGENT_CONF_FILE
+		findAndReplace "/udp_server_ip =/c\udp_server_ip = 0.0.0.0" $MON_AGENT_CONF_FILE
 		findAndReplace "/procfs_path =/c\procfs_path = /host/proc" $MON_AGENT_PS_WORKER_FILE
 		findAndReplace "/sysfs_path =/c\sysfs_path = /host/sys" $MON_AGENT_PS_WORKER_FILE
 		if [ ! -z $HOST_NAME ]; then
@@ -1137,31 +1199,29 @@ updatePsWorker(){
 
 createInstallLog() {
         if [ ! -d $PRODUCT_HOME ]; then
-                mkdir -p $PRODUCT_HOME
-                RET_VAL=$?
-                if [ $RET_VAL == $FAILURE ]; then
-                        ERROR_MSG="Error while creating $PRODUCT_HOME directory. Hence quiting agent installation!!"
-                        exit 2
-                fi
+			mkdir -p $PRODUCT_HOME
+			RET_VAL=$?
+			if [ $RET_VAL == $FAILURE ]; then
+					ERROR_MSG="Error while creating $PRODUCT_HOME directory. Hence quiting agent installation!!"
+					exit 2
+			fi
         fi
-        RET_VAL=$SUCCESS
         if [ ! -f $MON_AGENT_INSTALL_LOG ];     then
-                touch $MON_AGENT_INSTALL_LOG
-                RET_VAL=$?
-                if [ $RET_VAL == $FAILURE ]; then
-                        ERROR_MSG="Error while creating installtion log. Hence quiting agent installation!!"
-                        exit 2
-                fi
+			touch $MON_AGENT_INSTALL_LOG
+			RET_VAL=$?
+			if [ $RET_VAL == $FAILURE ]; then
+					ERROR_MSG="Error while creating installtion log. Hence quiting agent installation!!"
+					exit 2
+			fi
         fi
 }
 
 installAgent(){
 	variableUpdate
-	#initializeUninstallArray
-	isAgentInstalled $1
-	#check_python_attendance
-	check_valid_python_version
 	check_extraction_tool
+	check_python_attendance
+	set_pypi_files
+	isAgentInstalled $1
 	getAPIKey
 	extractBinaries
     createProductProfile
@@ -1205,12 +1265,9 @@ installAgent(){
 			startAgent
 		fi
 	else
-		print_green "Init folder cannot be detected"
+		print_red "Init folder cannot be detected"
 		log "init folder cannot be detected"
 		startAgent
-	fi
-	if [ $(command -v curl) ]; then
-	 	curl -sL --max-time 10 -d {\"success\":\"$OS_NAME\"} -H "Content-Type: application/json" -X POST $PLUS_ERROR_LINK$MON_AGENT_API_KEY\&req_type="venv_success"
 	fi
 	exit $SUCCESS
 }
@@ -1248,7 +1305,7 @@ printf '\033[31m
 }
 
 main() {
-	check_python_attendance
+	createInstallLog
 	if [ "$MON_AGENT_NONROOT" = "$BOOL_TRUE" ]; then
 		if [ "$(id -u)" = "0" ]; then
 			echo "can't use nonroot|nr option when logged in as root"
@@ -1313,6 +1370,9 @@ while [ "$1" != "" ]; do
 		-key)
 			MON_AGENT_API_KEY=$VALUE
 			;;
+		-columns)
+			ENV_COLUMNS=$VALUE
+			;;
 		-newkey|-nk)
 			MON_AGENT_NEW_KEY=$BOOL_TRUE
 			;;
@@ -1347,6 +1407,9 @@ while [ "$1" != "" ]; do
 	    -ct|-CT)
 			MON_AGENT_CONFIGURATION_TEMPLATE=$VALUE
 		    ;;
+		-ag|-AG)
+			MON_AGENT_ALERT_GROUP=$VALUE
+			;;
 	   -installer)
 			MON_AGENT_INSTALLER=$VALUE
 	    	;;
@@ -1364,6 +1427,9 @@ while [ "$1" != "" ]; do
 			;;
 		-cp|-CP)
 			COMPILE_PYTHON_PACKAGES=$BOOL_TRUE
+			;;
+		-venv)
+			USE_SYSTEM_VENV=$BOOL_TRUE	
 			;;
 		-tags)
             MON_AGENT_TAGS=$VALUE
@@ -1389,6 +1455,9 @@ while [ "$1" != "" ]; do
          -resource_check)
          	RSRC_CHECK=$VALUE
          	;;
+		-python)
+			INPUT_PYTHON=$VALUE
+			;;
 		*)
 			log $ECHO_RPRINT "Unknown installation parameter : $PARAM"
 			usage
